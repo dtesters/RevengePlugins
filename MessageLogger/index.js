@@ -1,288 +1,160 @@
-const { plugin, patcher, metro, ui, utils } = globalThis.vendetta || {};
-const storage = plugin?.storage ?? {};
-const { after, before } = patcher || {};
-const { findByProps, findByStoreName } = metro || {};
-const { FluxDispatcher, React } = (metro && metro.common) || {};
-const { findInReactTree } = utils || {};
-const { showToast } = (ui && ui.toasts) || {};
+// NoDelete Plugin (Simplified & Fixed for Revenge/Vendetta)
+// Original by meqativ, modified by Lumin to be self-contained and fix loading errors.
 
-// Core Discord stores/actions
-const MessageActions = findByProps ? findByProps("sendMessage", "receiveMessage", "editMessage") : undefined;
-const MessageStore = findByStoreName ? findByStoreName("MessageStore") : undefined;
+// --- Vendetta/Revenge API Setup ---
+// Get APIs from the global scope for maximum compatibility.
+// The original plugin used `import` statements which don't work when loaded remotely.
+const { metro, plugin, patcher, ui } = globalThis.vendetta;
+const { FluxDispatcher, moment } = metro.common;
+const { storage } = plugin;
+const { before } = patcher;
+const { findByStoreName } = metro;
+const { showToast } = ui.toasts;
 
-// ActionSheet for context-menu injection
-const ActionSheet = findByProps ? findByProps("openLazy", "hideActionSheet") : undefined;
-const ASComponents = findByProps ? findByProps("ActionSheetRow", "ActionSheetSection", "ActionSheetTitleHeader") : undefined;
-
-// Initialize storage shape
-if (!storage.logs) storage.logs = {}; // { [channelId: string]: LogEntry[] }
-if (!storage.uiMessageIds) storage.uiMessageIds = {}; // { [channelId: string]: string[] }
+// --- Helper Functions (Recreated from missing files) ---
 
 /**
- * @typedef {Object} LogEntry
- * @property {"delete"|"edit"} type
- * @property {string} messageId
- * @property {string} channelId
- * @property {any} author
- * @property {number} timestamp
- * @property {string=} contentBefore
- * @property {string=} contentAfter
- * @property {any[]=} embedsBefore
- * @property {any[]=} embedsAfter
+ * The original plugin imported this from a file at "../../common".
+ * Since that file can't be loaded, this is a simple replacement for it.
+ * It ensures default values are set in the plugin's storage.
+ * @param {object} storageObj The storage object to modify.
+ * @param {object} defaults The default settings to apply.
  */
-
-const patches = [];
-
-function ensureChannelLog(channelId) {
-  if (!storage.logs[channelId]) storage.logs[channelId] = [];
-  return storage.logs[channelId];
-}
-
-function ensureChannelUiIds(channelId) {
-  if (!storage.uiMessageIds[channelId]) storage.uiMessageIds[channelId] = [];
-  return storage.uiMessageIds[channelId];
-}
-
-function safeGetMessage(channelId, messageId, fallback) {
-  try {
-    return MessageStore?.getMessage?.(channelId, messageId) ?? fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function formatEmbed(embed) {
-  if (!embed) return "";
-  const segments = [];
-  if (embed.title) segments.push(`• ${embed.title}`);
-  if (embed.description) segments.push(embed.description);
-  if (Array.isArray(embed.fields) && embed.fields.length) {
-    for (const field of embed.fields) {
-      if (!field) continue;
-      const name = field.name ?? "";
-      const value = field.value ?? "";
-      segments.push(`${name}: ${value}`);
+function makeDefaults(storageObj, defaults) {
+  for (const key in defaults) {
+    if (typeof storageObj[key] !== "object" || storageObj[key] === null) {
+      if (storageObj[key] === undefined) storageObj[key] = defaults[key];
+    } else {
+      makeDefaults(storageObj[key], defaults[key]);
     }
   }
-  if (embed.url) segments.push(embed.url);
-  return segments.join("\n");
 }
 
-function summarizeEmbeds(embeds) {
-  if (!Array.isArray(embeds) || embeds.length === 0) return null;
-  const parts = embeds.map(formatEmbed).filter(Boolean);
-  return parts.length ? parts.join("\n---\n") : null;
-}
-
-function injectLocalLogMessage(channelId, content, embedsText) {
-  if (!MessageActions || !MessageActions.receiveMessage) return;
-  const id = `nodelete_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
-  const message = {
-    id,
-    type: 0,
-    flags: 0,
-    channel_id: channelId,
-    content,
-    author: {
-      id: "0",
-      username: "NoDelete",
-      discriminator: "0000",
-      avatar: null,
-      bot: true,
-    },
-  };
-  // Append textual representation of embeds under content to avoid RN embed rendering pitfalls
-  if (embedsText) {
-    message.content += `\n\nEmbeds:\n${embedsText}`;
-  }
-  try {
-    MessageActions.receiveMessage(channelId, message);
-  } catch {}
-  try {
-    ensureChannelUiIds(channelId).push(id);
-  } catch {}
-}
-
-function onMessageDeleted(payload) {
-  const channelId = payload?.channelId ?? payload?.channel_id;
-  const messageId = payload?.id;
-  if (!channelId || !messageId) return;
-
-  // Ignore plugin-generated entries
-  if (String(messageId).startsWith("nodelete_")) return;
-
-  const candidate = payload?.message ?? safeGetMessage(channelId, messageId, null);
-  if (!candidate) return;
-
-  const author = candidate.author ?? { id: "unknown", username: "Unknown" };
-  const contentBefore = candidate.content || "";
-  const embedsBefore = candidate.embeds || [];
-  const embedsText = summarizeEmbeds(embedsBefore);
-
-  /** @type {LogEntry} */
-  const entry = {
-    type: "delete",
-    messageId,
-    channelId,
-    author,
-    timestamp: Date.now(),
-    contentBefore,
-    embedsBefore,
-  };
-  ensureChannelLog(channelId).push(entry);
-
-  const who = author?.username ?? "Unknown";
-  const summary = contentBefore?.length ? contentBefore : "[no content]";
-  injectLocalLogMessage(channelId, `deleted message by ${who}:\n${summary}`, embedsText);
-}
-
-function onMessageDeletedBulk(payload) {
-  const channelId = payload?.channelId ?? payload?.channel_id;
-  const ids = payload?.ids;
-  if (!channelId || !Array.isArray(ids)) return;
-  for (const messageId of ids) {
-    if (String(messageId).startsWith("nodelete_")) continue;
-    onMessageDeleted({ channelId, id: messageId });
-  }
-}
-
-// For edits we patch dispatch BEFORE stores update, so we can read the old message content/embeds
-function setupMessageUpdateBeforePatch() {
-  if (!before || !FluxDispatcher) return;
-  const unpatch = before("dispatch", FluxDispatcher, ([action]) => {
-    if (!action || action.type !== "MESSAGE_UPDATE") return;
-    const payload = action;
-    const channelId = payload?.channelId ?? payload?.message?.channel_id ?? payload?.message?.channelId;
-    const messageId = payload?.message?.id ?? payload?.id;
-    if (!channelId || !messageId) return;
-
-    const oldMessage = safeGetMessage(channelId, messageId, null);
-    const newMessage = payload?.message ?? null;
-    if (!newMessage) return;
-
-    const oldContent = oldMessage?.content ?? "";
-    const newContent = newMessage?.content ?? "";
-    const oldEmbeds = oldMessage?.embeds ?? [];
-    const newEmbeds = newMessage?.embeds ?? [];
-
-    // If nothing changed (rare), do nothing
-    const contentChanged = oldContent !== newContent;
-    const embedsChanged = JSON.stringify(oldEmbeds) !== JSON.stringify(newEmbeds);
-    if (!contentChanged && !embedsChanged) return;
-
-    const author = (newMessage?.author ?? oldMessage?.author) || { id: "unknown", username: "Unknown" };
-
-    /** @type {LogEntry} */
-    const entry = {
-      type: "edit",
-      messageId,
-      channelId,
-      author,
-      timestamp: Date.now(),
-      contentBefore: oldContent,
-      contentAfter: newContent,
-      embedsBefore: oldEmbeds,
-      embedsAfter: newEmbeds,
+/**
+ * A placeholder for the translation function.
+ * For a full fix, the logic from `translations.js` would need to be pasted here.
+ * For now, it just returns a basic string.
+ * @param {string} find The translation key.
+ * @returns {string} The translated (or placeholder) string.
+ */
+const getTranslation = (find) => {
+    const translations = {
+        thisMessageWasDeleted: "This message was deleted"
     };
-    ensureChannelLog(channelId).push(entry);
-
-    const who = author?.username ?? "Unknown";
-    const embedsBeforeText = summarizeEmbeds(oldEmbeds);
-    const embedsAfterText = summarizeEmbeds(newEmbeds);
-    let content = `edited message by ${who}`;
-    if (contentChanged) content += `\nBefore:\n${oldContent || "[no content]"}\nAfter:\n${newContent || "[no content]"}`;
-    // Only include embeds if changed or if both are empty but message had embed-only changes
-    const embedLines = [];
-    if (embedsChanged || embedsBeforeText || embedsAfterText) {
-      if (embedsBeforeText) embedLines.push(`Embeds (before):\n${embedsBeforeText}`);
-      if (embedsAfterText) embedLines.push(`Embeds (after):\n${embedsAfterText}`);
-    }
-    injectLocalLogMessage(channelId, content, embedLines.length ? embedLines.join("\n\n") : null);
-  });
-  patches.push(unpatch);
-}
-
-function setupDeleteSubscriptions() {
-  if (!FluxDispatcher) return;
-  const onSingle = onMessageDeleted.bind(null);
-  const onBulk = onMessageDeletedBulk.bind(null);
-  FluxDispatcher.subscribe("MESSAGE_DELETE", onSingle);
-  FluxDispatcher.subscribe("MESSAGE_DELETE_BULK", onBulk);
-  patches.push(() => {
-    try { FluxDispatcher.unsubscribe("MESSAGE_DELETE", onSingle); } catch {}
-    try { FluxDispatcher.unsubscribe("MESSAGE_DELETE_BULK", onBulk); } catch {}
-  });
-}
-
-function addChannelClearLogContext() {
-  if (!after || !ActionSheet || !ASComponents || !findInReactTree || !React) return;
-  const unpatch = after("openLazy", ActionSheet, (args, ret) => {
-    const [factory] = args ?? [];
-    if (!factory) return;
-    const name = factory.name ?? factory.displayName;
-    if (name !== "ChannelLongPressActionSheet") return;
-
-    // ret is a promise resolving to the sheet module
-    ret?.then?.((sheet) => {
-      const orig = sheet?.default;
-      if (!orig) return;
-
-      sheet.default = (props) => {
-        const res = orig(props);
-        try {
-          const rowsContainer = findInReactTree(res, (node) => Array.isArray(node) && node.some((c) => c?.type === ASComponents.ActionSheetRow));
-          if (Array.isArray(rowsContainer)) {
-            rowsContainer.push(
-              React.createElement(ASComponents.ActionSheetRow, {
-                key: "nodelete-clear-log",
-                label: "Clear log",
-                onPress: () => {
-                  try {
-                    const channelId = props?.channel?.id ?? props?.channelId;
-                    if (channelId) {
-                      // Clear stored logs
-                      if (storage.logs[channelId]) storage.logs[channelId] = [];
-                      // Remove previously injected UI log messages
-                      const ids = ensureChannelUiIds(channelId);
-                      for (const id of ids) {
-                        try {
-                          FluxDispatcher.dispatch({ type: "MESSAGE_DELETE", channelId, id });
-                        } catch {}
-                      }
-                      storage.uiMessageIds[channelId] = [];
-                    }
-                    showToast("Cleared NoDelete log", 1);
-                  } catch {}
-                  ActionSheet.hideActionSheet();
-                },
-              })
-            );
-          }
-        } catch {}
-        return res;
-      };
-    });
-  });
-  patches.push(unpatch);
-}
-
-const NoDeletePlus = {
-  onLoad() {
-    try { setupMessageUpdateBeforePatch(); } catch {}
-    try { setupDeleteSubscriptions(); } catch {}
-    try { addChannelClearLogContext(); } catch {}
-  },
-  onUnload() {
-    while (patches.length) {
-      try { const un = patches.pop(); un && un(); } catch {}
-    }
-  },
+    return translations[find] || find.split(".").pop();
 };
 
-// Export for CommonJS runtime used by Vendetta/Revenge remote loader
-if (typeof module !== "undefined") {
-  module.exports = NoDeletePlus;
-}
 
+// --- Plugin Logic ---
 
+// Set default settings for the plugin on first load.
+makeDefaults(storage, {
+	ignore: {
+		users: [],
+		channels: [],
+		bots: false,
+	},
+	timestamps: false,
+	ew: false, // 12-hour format for timestamps
+});
 
+let MessageStore;
+const deleteable = []; // Tracks messages deleted by the user to avoid logging them.
+const patches = []; // Holds all our patches so we can easily remove them later.
+
+const NoDeletePlugin = {
+    /**
+     * This function runs when the plugin is loaded.
+     * It sets up the patch to intercept message deletions.
+     */
+    onLoad() {
+        try {
+            // This is the core patch. It runs *before* Discord's internal dispatcher
+            // processes an action, allowing us to modify it.
+            const dispatcherPatch = before("dispatch", FluxDispatcher, (args) => {
+                try {
+                    // Lazily get the MessageStore once.
+                    if (!MessageStore) MessageStore = findByStoreName("MessageStore");
+                    
+                    const event = args[0];
+
+                    // We only care about single message deletions.
+                    if (event?.type !== "MESSAGE_DELETE" || !event?.id || !event?.channelId) {
+                        return; // Do nothing for other events.
+                    }
+
+                    // Get the full message object from the store before it's deleted.
+                    const message = MessageStore.getMessage(event.channelId, event.id);
+
+                    // Check if the message author or type is in our ignore list.
+                    if (storage.ignore.users.includes(message?.author?.id)) return;
+                    if (storage.ignore.bots && message?.author?.bot) return;
+
+                    // If we just deleted this message ourselves, let it go through.
+                    if (deleteable.includes(event.id)) {
+                        deleteable.splice(deleteable.indexOf(event.id), 1);
+                        return args;
+                    }
+                    deleteable.push(event.id); // Mark for potential self-delete loop.
+
+                    // Create the "deleted message" text.
+                    let automodMessage = getTranslation("thisMessageWasDeleted");
+                    if (storage.timestamps) {
+                        const timeFormat = storage.ew ? "hh:mm:ss.SS a" : "HH:mm:ss.SS";
+                        automodMessage += ` (${moment().format(timeFormat)})`;
+                    }
+
+                    // Here's the magic: we swap the "MESSAGE_DELETE" event with a
+                    // "MESSAGE_EDIT_FAILED_AUTOMOD" event. This makes Discord display
+                    // a small red message under the original message content.
+                    args[0] = {
+                        type: "MESSAGE_EDIT_FAILED_AUTOMOD",
+                        messageData: {
+                            type: 1,
+                            message: { channelId: event.channelId, messageId: event.id },
+                        },
+                        errorResponseBody: {
+                            code: 200000, // A fake error code.
+                            message: automodMessage,
+                        },
+                    };
+                    return args; // Return the modified event.
+                } catch (e) {
+                    console.error("Error in NoDelete dispatcher patch:", e);
+                }
+            });
+            patches.push(dispatcherPatch); // Save the unpatch function.
+
+        } catch (e) {
+            console.error("Failed to load NoDelete plugin:", e);
+            showToast("NoDelete plugin failed to load.");
+        }
+    },
+
+    /**
+     * This function runs when the plugin is unloaded.
+     * It cleans up by removing all the patches we applied.
+     */
+    onUnload() {
+        for (const unpatch of patches) {
+            try {
+                unpatch();
+            } catch (e) {
+                console.error("Failed to unpatch NoDelete:", e);
+            }
+        }
+        patches.length = 0; // Clear the array for safety.
+    },
+    
+    /**
+     * The settings UI is not included in this fix. To make it work, the code 
+     * from `settings.jsx` would need to be completely rewritten using 
+     * `React.createElement` instead of JSX, and all its dependencies would
+     * need to be integrated into this file.
+     */
+    settings: undefined 
+};
+
+// Export the main plugin object using `module.exports`, which is the format
+// that Vendetta/Revenge's plugin loader expects.
+module.exports = NoDeletePlugin;
