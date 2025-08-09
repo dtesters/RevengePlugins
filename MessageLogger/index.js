@@ -1,8 +1,3 @@
-// NoDelete+ plugin for Revenge/Vendetta
-// - Logs deleted and edited messages (including embeds)
-// - Replaces per-message dismiss with Channel long-press "Clear log"
-
-// Use vendetta global for maximum compatibility with remote loading
 const { plugin, patcher, metro, ui, utils } = globalThis.vendetta || {};
 const storage = plugin?.storage ?? {};
 const { after, before } = patcher || {};
@@ -288,5 +283,6 @@ const NoDeletePlus = {
 if (typeof module !== "undefined") {
   module.exports = NoDeletePlus;
 }
+
 
 
