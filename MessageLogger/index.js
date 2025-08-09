@@ -309,7 +309,10 @@ const NoDeletePlus = {
 
 // Export for CommonJS runtime used by Vendetta/Revenge remote loader
 if (typeof module !== "undefined") {
+
+
   module.exports = NoDeletePlus;
 }
+
 
 
