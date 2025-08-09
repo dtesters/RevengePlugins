@@ -3,7 +3,21 @@
 // - Replaces per-message dismiss with Channel long-press "Clear log"
 
 // Use vendetta global for maximum compatibility with remote loading
-const { plugin, patcher, metro, ui, utils } = globalThis.vendetta || {};
+const vendettaGlobal = globalThis.vendetta || globalThis.revenge || {};
+const { plugin, patcher, metro, ui, utils } = vendettaGlobal;
+
+// Add error handling for missing vendetta
+if (!vendettaGlobal || Object.keys(vendettaGlobal).length === 0) {
+  console.error("[NoDelete+] Vendetta/Revenge not found. This plugin requires Vendetta or Revenge to be loaded first.");
+  // Early return with minimal plugin structure to prevent crashes
+  if (typeof module !== "undefined") {
+    module.exports = {
+      onLoad() { console.warn("[NoDelete+] Plugin not loaded - Vendetta/Revenge not available"); },
+      onUnload() {}
+    };
+  }
+}
+
 const storage = plugin?.storage ?? {};
 const { after, before } = patcher || {};
 const { findByProps, findByStoreName } = metro || {};
@@ -11,9 +25,18 @@ const { FluxDispatcher, React } = (metro && metro.common) || {};
 const { findInReactTree } = utils || {};
 const { showToast } = (ui && ui.toasts) || {};
 
-// Core Discord stores/actions
+// Enhanced error checking for required dependencies
+if (!findByProps || !findByStoreName) {
+  console.error("[NoDelete+] Metro module finder not available. Plugin functionality will be limited.");
+}
+
+// Core Discord stores/actions with better error handling
 const MessageActions = findByProps ? findByProps("sendMessage", "receiveMessage", "editMessage") : undefined;
 const MessageStore = findByStoreName ? findByStoreName("MessageStore") : undefined;
+
+if (!MessageActions || !MessageStore) {
+  console.warn("[NoDelete+] Could not find required Discord modules. Some features may not work.");
+}
 
 // ActionSheet for context-menu injection
 const ActionSheet = findByProps ? findByProps("openLazy", "hideActionSheet") : undefined;
