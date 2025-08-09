@@ -1,0 +1,17 @@
+{
+  "name": "vendetta-plugins",
+  "version": "1.1.0",
+  "description": "Updated/fixed Vendetta plugins collection",
+  "main": "MessageLogger/index.js",
+  "scripts": {
+    "start": "node deploy.js",
+    "serve": "node deploy.js",
+    "dev": "NODE_ENV=development node deploy.js"
+  },
+  "keywords": ["vendetta", "discord", "plugin", "message-logger"],
+  "author": "dtester",
+  "license": "MIT",
+  "engines": {
+    "node": ">=12.0.0"
+  }
+}
