@@ -1,0 +1,11 @@
+{
+  "name": "NoDelete",
+  "description": "Log deleted and edited messages (including embeds). Adds a channel long-press action: Clear log.",
+  "authors": [
+    { "name": "meqativ (original)", "id": "744276454946242723" },
+    { "name": "Modified by dtester", "id": "591534252307513347" }
+  ],
+  "main": "./index.js",
+  "vendetta": { "icon": "ic_hide_24px" }
+}
+
