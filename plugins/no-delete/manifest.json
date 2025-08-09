@@ -5,7 +5,8 @@
     { "name": "meqativ (original)", "id": "744276454946242723" },
     { "name": "Modified by dtester", "id": "591534252307513347" }
   ],
-  "main": "./index.js",
+  "version": "1.0.0",
+  "main": "index.js",
   "vendetta": { "icon": "ic_hide_24px" }
 }
 
