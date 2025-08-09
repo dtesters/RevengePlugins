@@ -6,10 +6,11 @@
     { "name": "Modified by dtester", "id": "591534252307513347" }
   ],
   "version": "1.1.0",
-  "main": "/index.js",
+  "main": "./index.js",
   "vendetta": {
     "icon": "trash"
   }
 }
+
 
 
