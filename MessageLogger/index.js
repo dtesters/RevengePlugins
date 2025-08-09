@@ -2,20 +2,22 @@
 // - Logs deleted and edited messages (including embeds)
 // - Replaces per-message dismiss with Channel long-press "Clear log"
 
-import { storage } from "@vendetta/plugin";
-import { after, before } from "@vendetta/patcher";
-import { findByProps, findByStoreName } from "@vendetta/metro";
-import { FluxDispatcher, React } from "@vendetta/metro/common";
-import { findInReactTree } from "@vendetta/utils";
-import { showToast } from "@vendetta/ui/toasts";
+// Use vendetta global for maximum compatibility with remote loading
+const { plugin, patcher, metro, ui, utils } = globalThis.vendetta || {};
+const storage = plugin?.storage ?? {};
+const { after, before } = patcher || {};
+const { findByProps, findByStoreName } = metro || {};
+const { FluxDispatcher, React } = (metro && metro.common) || {};
+const { findInReactTree } = utils || {};
+const { showToast } = (ui && ui.toasts) || {};
 
 // Core Discord stores/actions
-const MessageActions = findByProps("sendMessage", "receiveMessage", "editMessage");
-const MessageStore = findByStoreName("MessageStore");
+const MessageActions = findByProps ? findByProps("sendMessage", "receiveMessage", "editMessage") : undefined;
+const MessageStore = findByStoreName ? findByStoreName("MessageStore") : undefined;
 
 // ActionSheet for context-menu injection
-const ActionSheet = findByProps("openLazy", "hideActionSheet");
-const ASComponents = findByProps("ActionSheetRow", "ActionSheetSection", "ActionSheetTitleHeader");
+const ActionSheet = findByProps ? findByProps("openLazy", "hideActionSheet") : undefined;
+const ASComponents = findByProps ? findByProps("ActionSheetRow", "ActionSheetSection", "ActionSheetTitleHeader") : undefined;
 
 // Initialize storage shape
 if (!storage.logs) storage.logs = {}; // { [channelId: string]: LogEntry[] }
@@ -78,7 +80,7 @@ function summarizeEmbeds(embeds) {
 }
 
 function injectLocalLogMessage(channelId, content, embedsText) {
-  if (!MessageActions?.receiveMessage) return;
+  if (!MessageActions || !MessageActions.receiveMessage) return;
   const id = `nodelete_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
   const message = {
     id,
@@ -151,6 +153,7 @@ function onMessageDeletedBulk(payload) {
 
 // For edits we patch dispatch BEFORE stores update, so we can read the old message content/embeds
 function setupMessageUpdateBeforePatch() {
+  if (!before || !FluxDispatcher) return;
   const unpatch = before("dispatch", FluxDispatcher, ([action]) => {
     if (!action || action.type !== "MESSAGE_UPDATE") return;
     const payload = action;
@@ -205,17 +208,19 @@ function setupMessageUpdateBeforePatch() {
 }
 
 function setupDeleteSubscriptions() {
+  if (!FluxDispatcher) return;
   const onSingle = onMessageDeleted.bind(null);
   const onBulk = onMessageDeletedBulk.bind(null);
   FluxDispatcher.subscribe("MESSAGE_DELETE", onSingle);
   FluxDispatcher.subscribe("MESSAGE_DELETE_BULK", onBulk);
   patches.push(() => {
-    FluxDispatcher.unsubscribe("MESSAGE_DELETE", onSingle);
-    FluxDispatcher.unsubscribe("MESSAGE_DELETE_BULK", onBulk);
+    try { FluxDispatcher.unsubscribe("MESSAGE_DELETE", onSingle); } catch {}
+    try { FluxDispatcher.unsubscribe("MESSAGE_DELETE_BULK", onBulk); } catch {}
   });
 }
 
 function addChannelClearLogContext() {
+  if (!after || !ActionSheet || !ASComponents || !findInReactTree || !React) return;
   const unpatch = after("openLazy", ActionSheet, (args, ret) => {
     const [factory] = args ?? [];
     if (!factory) return;
@@ -266,16 +271,22 @@ function addChannelClearLogContext() {
   patches.push(unpatch);
 }
 
-export const onLoad = () => {
-  setupMessageUpdateBeforePatch();
-  setupDeleteSubscriptions();
-  addChannelClearLogContext();
+const NoDeletePlus = {
+  onLoad() {
+    try { setupMessageUpdateBeforePatch(); } catch {}
+    try { setupDeleteSubscriptions(); } catch {}
+    try { addChannelClearLogContext(); } catch {}
+  },
+  onUnload() {
+    while (patches.length) {
+      try { const un = patches.pop(); un && un(); } catch {}
+    }
+  },
 };
 
-export const onUnload = () => {
-  while (patches.length) {
-    try { const un = patches.pop(); un && un(); } catch {}
-  }
-};
+// Export for CommonJS runtime used by Vendetta/Revenge remote loader
+if (typeof module !== "undefined") {
+  module.exports = NoDeletePlus;
+}
 
 
