@@ -5,6 +5,6 @@
     { "name": "meqativ (original)", "id": "744276454946242723" },
     { "name": "Modified by dtester", "id": "591534252307513347" }
   ],
-  "main": "./index.js",
+  "main": "https://dtesters.github.io/RevengePlugins/NoDelete3/index.js",
   "vendetta": { "icon": "ic_hide_24px" }
 }
